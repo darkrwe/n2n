@@ -3,8 +3,7 @@
 # compilation and run procedure
 #
 
-
-$ g++ test.cpp -o test
+$ make
 $ sudo ./test
 
 

@@ -61,10 +61,11 @@ APPS+=supernode
 
 DOCS=edge.8.gz supernode.1.gz n2n_v2.7.gz
 
+
 all: $(APPS) $(DOCS)
 
-edge: edge.c $(N2N_LIB) n2n_wire.h n2n.h Makefile
-	$(CC) $(CFLAGS) edge.c $(N2N_LIB) $(LIBS_EDGE) -o edge
+edge: edge.c $(N2N_LIB) libancillary.a n2n_wire.h n2n.h ancillary.h Makefile
+	$(CC) $(CFLAGS) -L. edge.c  $(N2N_LIB) -lancillary $(LIBS_EDGE) -o edge
 
 test: test.c $(N2N_LIB) n2n_wire.h n2n.h Makefile
 	$(CC) $(CFLAGS) test.c $(N2N_LIB) $(LIBS_EDGE) -o test

@@ -24,9 +24,12 @@
  */
 
 #include "n2n.h"
+#include "ancillary.h"
 #include "n2n_transforms.h"
 #include <assert.h>
 #include <sys/stat.h>
+#include <sys/un.h>
+#include <sys/socket.h>
 #include "minilzo.h"
 
 #if defined(DEBUG)
@@ -1925,10 +1928,45 @@ static int run_loop(n2n_edge_t * eee );
 #define N2N_MACNAMSIZ           18 /* AA:BB:CC:DD:EE:FF + NULL*/
 #define N2N_IF_MODE_SIZE        16 /* static | dhcp */
 
+
+
+
+
+
+static void read_mac(char *ifname, n2n_mac_t mac_addr) {
+  int _sock, res;
+  struct ifreq ifr;
+  macstr_t mac_addr_buf;
+
+  memset (&ifr,0,sizeof(struct ifreq));
+
+  /* Dummy socket, just to make ioctls with */
+  _sock=socket(PF_INET, SOCK_DGRAM, 0);
+  strcpy(ifr.ifr_name, ifname);
+  res = ioctl(_sock,SIOCGIFHWADDR,&ifr);
+  if (res<0) {
+    perror ("Get hw addr");
+  } else
+    memcpy(mac_addr, ifr.ifr_ifru.ifru_hwaddr.sa_data, 6);
+
+  traceEvent(TRACE_NORMAL, "Interface %s has MAC %s",
+	     ifname,
+	     macaddr_str(mac_addr_buf, mac_addr ));
+  close(_sock);
+}
+
+
+
+
+
+
+
+
+
 /** Entry point to program from kernel. */
 int main(int argc, char* argv[])
 {
-    int     opt;
+    int     opt, fd_sock, recv_fd;
     int     local_port = 0 /* any port */;
     int     mgmt_port = N2N_EDGE_MGMT_PORT; /* 5644 by default */
     char    tuntap_dev_name[N2N_IFNAMSIZ] = "edge0";
@@ -1937,7 +1975,7 @@ int main(int argc, char* argv[])
     char    netmask[N2N_NETMASK_STR_SIZE]="255.255.255.0";
     int     mtu = DEFAULT_MTU;
     int     got_s = 0;
-
+	struct 	sockaddr_un addr_sock_fd;
 #ifndef WIN32
     uid_t   userid=0; /* root is the only guaranteed ID */
     gid_t   groupid=0; /* root is the only guaranteed ID */
@@ -2244,8 +2282,60 @@ int main(int argc, char* argv[])
         traceEvent(TRACE_NORMAL, "ip_mode='%s'", ip_mode);        
     }
 
+/********************************************************************************************************************/
+
+	/* Create socket from which to read. */ 
+	fd_sock = socket(AF_UNIX, SOCK_DGRAM, 0); 
+	if (fd_sock < 0) 
+	{ 
+		perror("opening datagram socket"); 
+		exit(1); 
+	}
+
+	/* Create name. */ 
+	addr_sock_fd.sun_family = AF_UNIX; 
+	strcpy(addr_sock_fd.sun_path, "socket4");
+
+	/* Bind the UNIX domain address to the created socket */ 
+	if (bind(fd_sock, (struct sockaddr *) &addr_sock_fd, sizeof(struct sockaddr_un))) 
+	{ 
+		perror("binding name to datagram socket"); 
+		exit(1); 
+	} 
+	/*
+	char buf[1024];
+	if (read(fd_sock, buf, 1024) < 0) 
+		perror("receiving datagram packet"); 
+		
+	traceEvent(TRACE_NORMAL, "buf fd is =%s", buf); 
+	close(fd_sock); 
+	unlink("socket2"); */
+	
+	
+	if(!ancil_recv_fd(fd_sock, &recv_fd))
+	{
+		traceEvent(TRACE_NORMAL, "OK fd is = %d", recv_fd);   
+	}
+	else
+	{
+		traceEvent(TRACE_NORMAL, "ERROR fd is =%d", recv_fd);   
+	}
+	
+	strncpy((eee.device).dev_name, tuntap_dev_name, MIN(IFNAMSIZ, N2N_IFNAMSIZ) );
+   
+    (eee.device).ip_addr = inet_addr(ip_addr);
+	(eee.device).device_mask = inet_addr(netmask);
+	read_mac(tuntap_dev_name, (eee.device).mac_addr);
+	(eee.device).fd = recv_fd;
+
+/*
+
+
     if(tuntap_open(&(eee.device), tuntap_dev_name, ip_mode, ip_addr, netmask, device_mac, mtu) < 0)
         return(-1);
+        * */
+        
+        
 
 #ifndef WIN32
     if ( (userid != 0) || (groupid != 0 ) ) {
