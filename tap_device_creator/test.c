@@ -7,6 +7,7 @@
 #include <net/if.h>
 #include <linux/if_tun.h>
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -16,15 +17,56 @@
 #include "ancillary.h"
 #include <sys/un.h>
 #include <sys/socket.h>
+#include <signal.h>
 
 #define DATA "The sea is calm tonight, the tide is full . . ."
+
+/**
+*
+*	Global variables about sockets, we cannot pass argument to signalHandler function so
+*	I decided to make these to variables global
+*/
+int fd_sock;
+struct sockaddr_un addr;
+
+/**
+*
+*	End function, it called when pressing ctrl + c or sudo kill
+*	It deletes socket files created before, closes the opened socket
+*	and exits properly.
+*
+*/
+void endProcess()
+{
+	unlink(addr.sun_path);
+	close(fd_sock);
+	exit(0);
+}
+
+
+/**
+*
+*	Signal Handler function, it catches SIGINT occured by ctrl + c and 
+*	it catches SIGTERM occured by sudo kill
+*
+*/
+void signalHandler(int signal)
+{
+	if(signal == SIGINT || signal == SIGTERM)
+	{
+		endProcess();
+	}
+}
+
 
 int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int mtu)
 {
 	struct ifreq ifr;
-	int fd, err, fd_sock;
+	int fd, err;
 	char *tuntap_device = "/dev/net/tun";
-	struct sockaddr_un addr;
+	char *socketName = "socket_";
+	char socketNameBuffer[64]; /* In order to operate on generating socket name. */
+	
 
 #define N2N_LINUX_SYSTEMCMD_SIZE 128
 
@@ -33,7 +75,8 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
 
 	fd = open(tuntap_device, O_RDWR);
 
-	if(fd < 0) {
+	if(fd < 0) 
+	{
 		printf("ERROR: ioctl() [%s][%d]\n", strerror(errno), errno);
 		return -1;
 	}
@@ -52,7 +95,8 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
 		rc = ioctl(fd, TUNSETIFF, (void *)&ifr);
     }
 
-	if(rc < 0) {
+	if(rc < 0) 
+	{
 		printf("error on ioctl\n");
 		close(fd);
 		return -1;
@@ -71,7 +115,7 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
     }
     
     if (IPaddress && IPaddress[0] == '\0')
-{
+    {
 		printf("IPaddress is empty.");
 	}
 	else
@@ -83,8 +127,7 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
 		else
 		{
 
-			snprintf(buf, sizeof(buf), "/sbin/ifconfig %s %s netmask %s mtu %d up",
-					ifr.ifr_name, IPaddress, netmask, mtu);
+			snprintf(buf, sizeof(buf), "/sbin/ifconfig %s %s netmask %s mtu %d up",ifr.ifr_name, IPaddress, netmask, mtu);
 			system(buf);
 		}
 	}
@@ -100,16 +143,16 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
 
 	/* Construct name of socket to send to. */ 
 	addr.sun_family = AF_UNIX; 
-	strcpy(addr.sun_path, "socket4");
-	
-	
-	/* Send message. without using libancillary, "DATA" is send successfully to edge command. */ /*
-	if (sendto(fd_sock, DATA, sizeof(DATA), 0,(struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) 
+	snprintf(socketNameBuffer, sizeof socketNameBuffer, "%s%s", socketName, IPaddress); /* socket name generating with IP adress */
+	strcpy(addr.sun_path, socketNameBuffer);
+
+
+	/* Bind the UNIX domain address to the created socket */ 
+	if (bind(fd_sock, (struct sockaddr *) &addr, sizeof(struct sockaddr_un))) 
 	{ 
-		perror("sending datagram message"); 
-	} 
-	close(fd_sock); 
-	*/
+		perror("binding name to datagram socket"); 
+		exit(1); 
+	}
 	
 	if(ancil_send_fd(fd_sock, fd) == 0)
 	{
@@ -126,8 +169,10 @@ int tuntap_open(char *dev, char* HWaddress, char* IPaddress, char* netmask, int 
 
 int main()
 {
+    signal(SIGINT, signalHandler);    /*    for ctrl + c           */
+	signal(SIGTERM, signalHandler);   /*	for sudo kill          */
 
-	tuntap_open("edge0","80:70:60:50:40:30","10.1.2.3", "255.255.255.0", 1500);
+	tuntap_open("edge0","80:70:60:50:40:30","10.11.12.13", "255.255.255.0", 1500);
 	while(1){}
 }
 
